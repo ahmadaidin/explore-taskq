@@ -7,6 +7,9 @@ import (
 	"log"
 	"time"
 
+	"github.com/go-redis/redis/v8"
+	"github.com/go-redsync/redsync/v4"
+	"github.com/go-redsync/redsync/v4/redis/goredis/v8"
 	"github.com/hibiken/asynq"
 )
 
@@ -18,6 +21,13 @@ const (
 type SetCounterPayload struct {
 	Counter int
 }
+
+var redisClient = redis.NewClient(&redis.Options{
+	Addr: "127.0.0.1:6379",
+})
+
+var pool = goredis.NewPool(redisClient)
+var rs = redsync.New(pool)
 
 //----------------------------------------------
 // Write a function NewXXXTask to create a task.
@@ -45,6 +55,23 @@ func HandleSetCounterTask(ctx context.Context, t *asynq.Task) error {
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
 	}
+	mutexname := fmt.Sprintf("counter-%d", p.Counter)
+	mutex := rs.NewMutex(mutexname)
+	// Obtain a lock for our given mutex. After this is successful, no one else
+	// can obtain the same lock (the same mutex name) until we unlock it.
+	if err := mutex.Lock(); err != nil {
+		if err == redsync.ErrFailed {
+			fmt.Println("Could not obtain lock!")
+		} else {
+			log.Println(err.Error())
+		}
+		return nil
+	}
 	log.Printf("Counter now: counter=%d", p.Counter)
+	time.Sleep(time.Minute)
+	// Release the lock so other processes or threads can obtain a lock.
+	if ok, err := mutex.Unlock(); !ok || err != nil {
+		log.Println("unlock failed")
+	}
 	return nil
 }
