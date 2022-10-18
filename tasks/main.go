@@ -55,13 +55,13 @@ func HandleSetCounterTask(ctx context.Context, t *asynq.Task) error {
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
 	}
-	mutexname := fmt.Sprintf("counter-%d", p.Counter)
-	mutex := rs.NewMutex(mutexname)
+	resourceID := fmt.Sprintf("counter-%d", p.Counter)
+	mutex := rs.NewMutex(resourceID)
 	// Obtain a lock for our given mutex. After this is successful, no one else
 	// can obtain the same lock (the same mutex name) until we unlock it.
 	if err := mutex.Lock(); err != nil {
 		if err == redsync.ErrFailed {
-			fmt.Println("Could not obtain lock!")
+			fmt.Printf("resource with id %s is being processed\n", resourceID)
 		} else {
 			log.Println(err.Error())
 		}
@@ -71,7 +71,7 @@ func HandleSetCounterTask(ctx context.Context, t *asynq.Task) error {
 	time.Sleep(time.Minute)
 	// Release the lock so other processes or threads can obtain a lock.
 	if ok, err := mutex.Unlock(); !ok || err != nil {
-		log.Println("unlock failed")
+		log.Printf("unlock resource with id %s failed\n", resourceID)
 	}
 	return nil
 }
